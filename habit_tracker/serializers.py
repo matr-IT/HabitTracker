@@ -14,13 +14,11 @@ class HabitSerializer(ModelSerializer):
     public_habits = serializers.SerializerMethodField()
 
     def get_public_habits(self, public_habits):
-            return Habit.objects.filter(is_public=True).all()
+        return Habit.objects.filter(is_public=True).all()
 
     def validate_connection_or_reward(self, data):
         if data.get("connected_habit") and data.get("reward"):
-            raise serializers.ValidationError(
-                "Можно указать либо связь, либо награду."
-            )
+            raise serializers.ValidationError("Можно указать либо связь, либо награду.")
         return data
 
     def validate_time_to_complete(self, value):
@@ -38,7 +36,9 @@ class HabitSerializer(ModelSerializer):
         return value
 
     def validate_is_pleasant(self, value):
-        if value and (self.initial_data.get("reward") or self.initial_data.get("connected_habit")):
+        if value and (
+            self.initial_data.get("reward") or self.initial_data.get("connected_habit")
+        ):
             raise serializers.ValidationError(
                 "У приятной привычки не может быть вознаграждения или связанной привычки."
             )
@@ -50,5 +50,3 @@ class HabitSerializer(ModelSerializer):
                 "Периодичность должна быть от 1 до 7 раз в неделю."
             )
         return value
-
-

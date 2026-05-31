@@ -25,7 +25,6 @@ class User(AbstractUser):
         help_text="Введите номер телефона",
     )
 
-
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 

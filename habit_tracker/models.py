@@ -1,6 +1,7 @@
 from django.db import models
 from django.db.models import CASCADE
 
+
 class Habit(models.Model):
     owner = models.ForeignKey(
         "users.User",
@@ -45,6 +46,8 @@ class Habit(models.Model):
         max_length=100,
         verbose_name="Награда",
         help_text="Какую награду вы хотите получить за развитие этой привычки?",
+        null=True,
+        blank=True,
     )
     time_to_complete = models.IntegerField(
         verbose_name="Время на выполнение",
