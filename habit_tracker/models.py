@@ -6,8 +6,6 @@ class Habit(models.Model):
     owner = models.ForeignKey(
         "users.User",
         on_delete=CASCADE,
-        null=True,
-        blank=True,
         verbose_name="Владелец",
         help_text="Владелец привычки",
     )
@@ -58,3 +56,7 @@ class Habit(models.Model):
         verbose_name="Публичная привычка",
         help_text="Отметьте, если вы хотите, чтобы эта привычка была видна другим пользователям",
     )
+
+    class Meta:
+        ordering = ["id"]
+

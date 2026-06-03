@@ -2,36 +2,56 @@ from rest_framework.generics import (
     CreateAPIView,
     DestroyAPIView,
     RetrieveAPIView,
-    UpdateAPIView, ListAPIView,
+    UpdateAPIView,
+    ListAPIView,
 )
+from rest_framework.permissions import IsAuthenticated, AllowAny
 
 from habit_tracker.models import Habit
 from habit_tracker.pagination import MyPagination
-from habit_tracker.serializers import HabitSerializer
+from habit_tracker.serializers import HabitSerializer, PublicHabitSerializer
+
+
+class OwnedHabitMixin:
+
+    permission_classes = (IsAuthenticated,)
+
+    def get_queryset(self):
+        user = getattr(self.request, "user", None)
+        if not user or not user.is_authenticated:
+            return Habit.objects.none()
+        return Habit.objects.filter(owner=user)
+
 
 class HabitCreateAPIView(CreateAPIView):
     serializer_class = HabitSerializer
+    permission_classes = (IsAuthenticated,)
     queryset = Habit.objects.all()
 
-class HabitRetrieveAPIView(RetrieveAPIView):
-    serializer_class = HabitSerializer
-    queryset = Habit.objects.all()
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
 
-class HabitUpdateAPIView(UpdateAPIView):
-    serializer_class = HabitSerializer
-    queryset = Habit.objects.all()
 
-class HabitDestroyAPIView(DestroyAPIView):
+class HabitRetrieveAPIView(OwnedHabitMixin, RetrieveAPIView):
     serializer_class = HabitSerializer
-    queryset = Habit.objects.all()
 
-class HabitListAPIView(ListAPIView):
+
+class HabitUpdateAPIView(OwnedHabitMixin, UpdateAPIView):
     serializer_class = HabitSerializer
-    queryset = Habit.objects.all()
+
+
+class HabitDestroyAPIView(OwnedHabitMixin, DestroyAPIView):
+    serializer_class = HabitSerializer
+
+
+class HabitListAPIView(OwnedHabitMixin, ListAPIView):
+    serializer_class = HabitSerializer
     pagination_class = MyPagination
 
-    def get(self, request):
-        queryset = Habit.objects.all()
-        paginated_queryset = self.paginate_queryset(queryset)
-        serializer = HabitSerializer(paginated_queryset, many=True)
-        return self.get_paginated_response(serializer.data)
+
+class PublicHabitListAPIView(ListAPIView):
+    permission_classes = (AllowAny,)
+    serializer_class = PublicHabitSerializer
+    pagination_class = MyPagination
+    queryset = Habit.objects.filter(is_public=True)
+ 

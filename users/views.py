@@ -8,7 +8,13 @@ from rest_framework.generics import (
 from rest_framework.permissions import AllowAny
 
 from users.models import User
-from users.serializers import UserSerializer
+from users.serializers import UserSerializer, MyTokenObtainPairSerializer
+
+from rest_framework_simplejwt.views import TokenObtainPairView
+
+
+class MyTokenObtainPairView(TokenObtainPairView):
+    serializer_class = MyTokenObtainPairSerializer
 
 
 class UserCreateAPIView(CreateAPIView):

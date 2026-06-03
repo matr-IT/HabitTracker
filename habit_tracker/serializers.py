@@ -11,12 +11,7 @@ class HabitSerializer(ModelSerializer):
         fields = "__all__"
         read_only_fields = ("owner",)
 
-    public_habits = serializers.SerializerMethodField()
-
-    def get_public_habits(self, public_habits):
-        return Habit.objects.filter(is_public=True).all()
-
-    def validate_connection_or_reward(self, data):
+    def validate(self, data):
         if data.get("connected_habit") and data.get("reward"):
             raise serializers.ValidationError("Можно указать либо связь, либо награду.")
         return data
@@ -31,7 +26,7 @@ class HabitSerializer(ModelSerializer):
     def validate_connected_habit(self, value):
         if value and not value.is_pleasant:
             raise serializers.ValidationError(
-                "В связанные привычки могут попадать только привычки с признаком приятной привычки.."
+                "В связанные привычки можно добавить только привычки с признаком приятной привычки."
             )
         return value
 
@@ -50,3 +45,10 @@ class HabitSerializer(ModelSerializer):
                 "Периодичность должна быть от 1 до 7 раз в неделю."
             )
         return value
+
+
+class PublicHabitSerializer(ModelSerializer):
+
+    class Meta:
+        model = Habit
+        fields = ("id", "action", "place")
