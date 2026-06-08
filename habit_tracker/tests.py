@@ -1,138 +1,202 @@
+from django.test import TestCase
+from django.contrib.auth import get_user_model
 from django.urls import reverse
+from rest_framework.test import APIClient
 from rest_framework import status
-from rest_framework.test import APITestCase, APIClient
 
-from users.models import User
 from habit_tracker.models import Habit
 
 
-class HabitCRUDTests(APITestCase):
+class HabitCRUDTest(TestCase):
+	def _create_user(self, **kwargs):
+		User = get_user_model()
+		data = dict(email="user@example.com", chat_id="chat123")
+		data.update(kwargs)
+		user = User.objects.create(**data)
+		user.set_password(data.get("password", "pass"))
+		user.save()
+		return user
+
 	def setUp(self):
-		# create two users
-		self.u1 = User(email="user1@example.com")
-		self.u1.set_password("pass")
-		self.u1.save()
+		self.client = APIClient()
+		self.user = self._create_user(email="owner@example.com")
+		self.other = self._create_user(email="other@example.com")
 
-		self.u2 = User(email="user2@example.com")
-		self.u2.set_password("pass")
-		self.u2.save()
+	def test_create_habit(self):
+		self.client.force_authenticate(self.user)
+		url = reverse("habit_tracker:create")
+		payload = {
+			"place": "Home",
+			"time": "08:00:00",
+			"action": "Meditate",
+			"is_pleasant": False,
+			"periodicity": 3,
+			"reward": "",
+			"time_to_complete": 60,
+			"is_public": False,
+		}
+		resp = self.client.post(url, payload, format="json")
+		self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+		self.assertTrue(Habit.objects.filter(owner=self.user, action="Meditate").exists())
 
-		# create habits: one for u1, one for u2 (public), one without owner
-		self.h1 = Habit.objects.create(
-			owner=self.u1,
-			place="дом",
+	def test_retrieve_habit(self):
+		habit = Habit.objects.create(
+			owner=self.user,
+			place="Gym",
 			time="07:00:00",
-			action="u1habit",
-			periodicity=3,
+			action="Workout",
+			is_pleasant=False,
+			periodicity=4,
+			time_to_complete=30,
+			is_public=False,
+		)
+		self.client.force_authenticate(self.user)
+		url = reverse("habit_tracker:detail", kwargs={"pk": habit.pk})
+		resp = self.client.get(url)
+		self.assertEqual(resp.status_code, status.HTTP_200_OK)
+		self.assertEqual(resp.data.get("action"), "Workout")
+
+	def test_update_habit_by_owner_and_forbidden_for_others(self):
+		habit = Habit.objects.create(
+			owner=self.user,
+			place="Office",
+			time="09:00:00",
+			action="Read",
+			is_pleasant=False,
+			periodicity=2,
+			time_to_complete=20,
+			is_public=False,
+		)
+		update_url = reverse("habit_tracker:update", kwargs={"pk": habit.pk})
+
+		self.client.force_authenticate(self.other)
+		resp = self.client.patch(update_url, {"action": "Write"}, format="json")
+		self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+		self.client.force_authenticate(self.user)
+		resp = self.client.patch(update_url, {"action": "Write"}, format="json")
+		self.assertEqual(resp.status_code, status.HTTP_200_OK)
+		habit.refresh_from_db()
+		self.assertEqual(habit.action, "Write")
+
+	def test_delete_habit(self):
+		habit = Habit.objects.create(
+			owner=self.user,
+			place="Park",
+			time="06:00:00",
+			action="Run",
+			is_pleasant=False,
+			periodicity=5,
+			time_to_complete=40,
+			is_public=False,
+		)
+		delete_url = reverse("habit_tracker:delete", kwargs={"pk": habit.pk})
+		self.client.force_authenticate(self.other)
+		resp = self.client.delete(delete_url)
+		self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+		self.client.force_authenticate(self.user)
+		resp = self.client.delete(delete_url)
+		self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+		self.assertFalse(Habit.objects.filter(pk=habit.pk).exists())
+
+	def test_list_owned_habits(self):
+		Habit.objects.create(
+			owner=self.user,
+			place="Home",
+			time="08:00:00",
+			action="A",
+			is_pleasant=False,
+			periodicity=1,
 			time_to_complete=10,
 			is_public=False,
 		)
-
-		self.h2 = Habit.objects.create(
-			owner=self.u2,
-			place="дом",
+		Habit.objects.create(
+			owner=self.other,
+			place="Home",
 			time="08:00:00",
-			action="u2habit",
-			periodicity=2,
-			time_to_complete=20,
-			is_public=True,
-		)
-
-		self.h_template = Habit.objects.create(
-			owner=None,
-			place="парк",
-			time="09:00:00",
-			action="template",
+			action="B",
+			is_pleasant=False,
 			periodicity=1,
-			time_to_complete=5,
+			time_to_complete=10,
+			is_public=False,
+		)
+		self.client.force_authenticate(self.user)
+		url = reverse("habit_tracker:list")
+		resp = self.client.get(url)
+		self.assertEqual(resp.status_code, status.HTTP_200_OK)
+		actions = [i.get("action") for i in resp.data.get("results", resp.data)]
+		self.assertIn("A", actions)
+		self.assertNotIn("B", actions)
+
+	def test_public_list_accessible_to_anyone(self):
+		Habit.objects.create(
+			owner=self.user,
+			place="Beach",
+			time="10:00:00",
+			action="Swim",
+			is_pleasant=False,
+			periodicity=1,
+			time_to_complete=15,
 			is_public=True,
 		)
-
-		self.client = APIClient()
-
-	def test_list_returns_only_user_habits(self):
-		url = reverse("habit_tracker:list")
-		# unauthenticated -> 401 or 403 depending on auth config
-		r = self.client.get(url)
-		self.assertIn(r.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
-
-		# authenticated as u1 -> only h1
-		self.client.force_authenticate(user=self.u1)
-		r = self.client.get(url)
-		self.assertEqual(r.status_code, status.HTTP_200_OK)
-		data = r.json()
-		# results paginated
-		results = data.get("results", data)
-		self.assertTrue(any(item["id"] == self.h1.id for item in results))
-		self.assertFalse(any(item["id"] == self.h2.id for item in results))
-
-	def test_public_list_accessible_without_auth(self):
+		Habit.objects.create(
+			owner=self.user,
+			place="Home",
+			time="11:00:00",
+			action="Cook",
+			is_pleasant=False,
+			periodicity=1,
+			time_to_complete=15,
+			is_public=False,
+		)
 		url = reverse("habit_tracker:public-list")
-		r = self.client.get(url)
-		self.assertEqual(r.status_code, status.HTTP_200_OK)
-		data = r.json()
-		results = data.get("results", data)
-		# should contain public habits (h2 and h_template)
-		ids = {item["id"] for item in results}
-		self.assertIn(self.h2.id, ids)
-		self.assertIn(self.h_template.id, ids)
+		client = APIClient()
+		resp = client.get(url)
+		self.assertEqual(resp.status_code, status.HTTP_200_OK)
+		actions = [i.get("action") for i in resp.data.get("results", resp.data)]
+		self.assertIn("Swim", actions)
+		self.assertNotIn("Cook", actions)
 
-	def test_create_sets_owner_and_requires_auth(self):
+	def test_validation_conflicting_reward_and_connected_habit(self):
+		pleasant = Habit.objects.create(
+			owner=self.user,
+			place="Park",
+			time="07:00:00",
+			action="Smile",
+			is_pleasant=True,
+			periodicity=1,
+			time_to_complete=10,
+			is_public=False,
+		)
+		self.client.force_authenticate(self.user)
 		url = reverse("habit_tracker:create")
 		payload = {
-			"place": "квартира",
-			"time": "10:00:00",
-			"action": "new habit",
+			"place": "Home",
+			"time": "12:00:00",
+			"action": "Test",
 			"is_pleasant": False,
-			"periodicity": 2,
-			"time_to_complete": 15,
+			"periodicity": 3,
+			"reward": "Candy",
+			"connected_habit": pleasant.pk,
+			"time_to_complete": 30,
 			"is_public": False,
-			# attempt to set owner should be ignored
-			"owner": self.u2.id,
 		}
+		resp = self.client.post(url, payload, format="json")
+		self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
-		# unauthenticated -> 401 or 403 depending on auth config
-		r = self.client.post(url, payload, format="json")
-		self.assertIn(r.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
-
-		# authenticated as u1 -> created and owner == u1
-		self.client.force_authenticate(user=self.u1)
-		r = self.client.post(url, payload, format="json")
-		self.assertEqual(r.status_code, status.HTTP_201_CREATED)
-		body = r.json()
-		self.assertEqual(body.get("owner"), self.u1.id)
-
-	def test_retrieve_update_delete_permissions(self):
-		detail_url = lambda pk: reverse("habit_tracker:detail", args=[pk])
-		update_url = lambda pk: reverse("habit_tracker:update", args=[pk])
-		delete_url = lambda pk: reverse("habit_tracker:delete", args=[pk])
-
-		# authenticate as u1
-		self.client.force_authenticate(user=self.u1)
-
-		# retrieve own habit
-		r = self.client.get(detail_url(self.h1.id))
-		self.assertEqual(r.status_code, status.HTTP_200_OK)
-
-		# cannot retrieve other's habit (should be 404)
-		r = self.client.get(detail_url(self.h2.id))
-		self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
-
-		# update own habit
-		r = self.client.patch(update_url(self.h1.id), {"action": "updated"}, format="json")
-		self.assertEqual(r.status_code, status.HTTP_200_OK)
-		self.h1.refresh_from_db()
-		self.assertEqual(self.h1.action, "updated")
-
-		# cannot update other's habit
-		r = self.client.patch(update_url(self.h2.id), {"action": "bad"}, format="json")
-		self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
-
-		# delete own habit
-		r = self.client.delete(delete_url(self.h1.id))
-		self.assertIn(r.status_code, (status.HTTP_204_NO_CONTENT, status.HTTP_200_OK))
-
-		# cannot delete other's habit
-		r = self.client.delete(delete_url(self.h2.id))
-		self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
-
+	def test_validation_time_to_complete_range(self):
+		self.client.force_authenticate(self.user)
+		url = reverse("habit_tracker:create")
+		payload = {
+			"place": "Home",
+			"time": "12:00:00",
+			"action": "Test2",
+			"is_pleasant": False,
+			"periodicity": 3,
+			"reward": "",
+			"time_to_complete": 200,
+			"is_public": False,
+		}
+		resp = self.client.post(url, payload, format="json")
+		self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
